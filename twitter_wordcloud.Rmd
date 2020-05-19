@@ -1,0 +1,336 @@
+---
+title: "twitter_wordclouds"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(tidyverse)
+library(tidytext)
+library(tm)
+library(wordcloud)
+library(SnowballC)
+library(RColorBrewer)
+library(wordcloud2)
+library(ggplot2)
+library(tidyr)
+library(widyr)
+library(ggplot2)
+library(igraph)
+library(ggraph)
+library(topicmodels)
+library(DataCombine)
+library(ggThemeAssist)
+library(lubridate)
+library(readr)
+library(rtweet)
+library(kableExtra)
+library(formattable)
+library(data.table)
+library(dendroTools)
+library(tokenizers)
+library(quanteda)
+
+
+```
+
+```{r}
+
+
+theme_ADC<- function() {
+  theme_bw(base_size=12,base_family="Helvetica") %+replace%
+    theme(
+      plot.title=element_text(size=11, face="bold",margin=margin(10,0,10,0),color="#1D244F"),
+      plot.subtitle = element_text(size=10,margin=margin(0,0,10,0),color="#1D244F"),
+        axis.text.x = element_text(angle=50, size=8, vjust=0.5, color="#1D244F"),
+        axis.text.y = element_text(size=8, color="#1D244F"),
+        axis.title.x = element_text(color="#1D244F",vjust=-.5,size=10),
+        axis.title.y = element_text(color="#1D244F",angle=90,vjust=.5,size=10),
+        panel.background=element_rect(fill="white"),
+        axis.line = element_line(color="#1D244F"),
+      panel.grid.major = element_line(colour = "white", size = 0.2), 
+    panel.grid.minor = element_line(colour = "white", size = 0.5),
+    )
+}
+
+
+
+
+```
+
+```{r}
+
+
+ADC <- get_timeline("@ArcticDataCtr", n= 3200)
+
+#Creating an organic tweet list
+#Remove retweets
+ADC_tweets_organic <- ADC[ADC$is_retweet==FALSE, ] 
+# Remove replies
+ADC_tweets_organic <- subset(ADC_tweets_organic, is.na(ADC_tweets_organic$reply_to_status_id)) 
+ADC_tweets_organic$created_at <-as.character.Date(ADC_tweets_organic$created_at) 
+ADC_tweets_organic$hashtags <-as.list(ADC_tweets_organic$hashtags) 
+
+#Keeping ONLY the retweets
+ADC_retweets <- ADC[ADC$is_retweet==TRUE, ] 
+
+#Keeping ONLY the replies
+ADC_replies <- subset(ADC, !is.na(ADC$reply_to_status_id))
+
+
+
+```
+
+
+
+
+Using tidytext, tm, and quanteda to make some cute wordclouds and plots
+
+```{r}
+
+
+#reducing file to text only
+text_only <- ADC_tweets_organic$text
+
+#Load the data as a corpus
+docs <- Corpus(VectorSource(text_only))
+
+```
+
+```{r}
+
+#Cleaning up data
+# Remove numbers
+docs <- tm_map(docs, removeNumbers)
+# Remove english common stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+# Remove punctuations
+docs <- tm_map(docs, removePunctuation)
+#Eliminate extra white spaces
+docs <- tm_map(docs, stripWhitespace)
+# I have found this text stemming function to be quite squirrely. It is supposed to reduce words like "sciences" down to "science" so they can be considered the same word but it is frequently chopping the s or ed of of words it should not.
+# Text stemming
+#docs <- tm_map(docs, stemDocument)
+
+#Removing words I don't want
+docs <- tm_map(docs, removeWords, c("center", "amp", "arcticdatactr"))
+               
+#Building a term document matrix for tweets
+dtm <- TermDocumentMatrix(docs)
+
+
+```
+
+```{r}
+
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+head(d, 100)
+
+
+
+```
+
+```{r}
+
+
+set.seed(1234)
+wordcloud(words = d$word, freq = d$freq, min.freq = 1,
+        max.words=100, random.order=FALSE, rot.per=0.35, 
+       colors=brewer.pal(8, "Dark2"), scale=c(3.3,0.25))
+
+
+
+set.seed(1234)
+wordcloud(words = d$word, freq = d$freq, min.freq = 1,
+        max.words=80, random.order=FALSE, rot.per=0.35, 
+       colors=brewer.pal(10, "Dark2"), scale=c(5.3,0.25))
+
+
+color_pal <- c("#79FDB1","#B4E6EA","#1D244E", "#156760", "#1D244F")
+
+set.seed(1234)
+wordcloud(words = d$word, freq = d$freq, min.freq = 1,
+        max.words=80, random.order=FALSE, rot.per=0.35, 
+       colors= color_pal, scale=c(5.3,0.25))
+
+
+
+
+
+```
+
+```{r}
+
+#Lil ggplot of the top 15 most frequently tweeted words
+
+top_15 <- as.data.frame(head(d, 15))
+
+top_15$freq <- as.numeric(top_15$freq)
+
+ top_15_plot  <- ggplot(top_15, aes(x = reorder(word, -freq), y = freq, fill = freq)) +
+  geom_bar(stat="identity",  position=position_dodge()) +
+  labs(x = "Word", y = "Frequency in ADC Tweets") +
+   theme(axis.text.x = element_text(vjust = 0, 
+    angle = 45))  + theme(axis.text.x = element_text(vjust = 0.8)) + 
+  theme(panel.background = element_rect(fill = NA)) +
+   scale_fill_continuous(type = "viridis")
+
+ #My default is to use viridis because it is colorblind friendly but it was cool to see how you set a custom theme!
+ top_15_plot 
+ 
+ top_15_plot + theme_ADC()
+
+
+
+
+
+```
+
+```{r}
+
+
+#You can use quanteda function corpus() to turn a tm corpus into a quanteda corpus
+
+corp_from_docs <- corpus(docs)
+
+#The kwic function (keywords-in-context) performs a search for a word and allows us to view the contexts in which it occurs:
+
+#Here I am using the corpus to look for patterns but I can also use the character string (in this case "text_only")
+
+kwic(corp_from_docs, pattern = "data")
+
+
+kwic(corp_from_docs, pattern = phrase("climate change")) %>%
+    head() # show context of the first six occurrences of "climate change"
+
+
+```
+
+
+```{r}
+
+
+tidy_tweets  <- ADC_tweets_organic %>%
+  unnest_tokens(word, 'text')
+
+tidy_tweets 
+
+#Now that the data is in one-word-per-row format, we can manipulate it with tidy tools like dplyr. 
+
+data(stop_words)
+
+tidy_tweets  <- tidy_tweets  %>%
+  anti_join(stop_words)
+
+
+#Removing uninformativ words
+my_stopwords <- tibble(word = c(as.character(1:3), "center", "arcticdatactr", "https", "amp", "t.co", "dataoneorg"))
+
+tidy_tweets  <- tidy_tweets  %>% 
+  anti_join(my_stopwords)
+
+#Removing symbols
+
+remove_reg <- "&amp;|&lt;|&gt;."
+
+tidy_tweets  <- tidy_tweets  %>% 
+  mutate(text = str_remove_all(word, remove_reg)) 
+
+#removing any rows with numbers in the word column
+tidy_tweets  <- tidy_tweets  %>% 
+  filter(!str_detect(word, "\\d"))
+
+#This is making all the words uppercase. I find this aesthetically pleasing but feel free to delete
+tidy_tweets <- tidy_tweets %>% 
+  mutate(word = toupper(word))
+
+#We can use dplyr’s count() to find the most common words in all the books as a whole.
+
+tidy_tweets  %>%
+  count(word, sort = TRUE) 
+
+tidy_tweet_10 <- tidy_tweets %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 10) 
+
+
+set.seed(1234)
+wordcloud(words = tidy_tweet_10$word, freq = tidy_tweet_10$n, min.freq = 1,
+          max.words=50, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"), scale=c(5,0.35))
+
+tidy_tweet_1 <- tidy_tweets %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 1) 
+
+
+color_pal <- c("#79FDB1","#B4E6EA","#1D244E", "#156760", "#1D244F")
+
+color_pal_light <- c("#1D244E", "#B4E6EA","#1D244F" , "#79FDB1")
+
+set.seed(1234)
+wordcloud2(data = tidy_tweet_1, color = color_pal, backgroundColor="black", size = 1.3)
+
+
+
+
+
+
+```
+
+```{r}
+
+
+#Using tidy text to look for correlations within LTER article titles
+ADC_tweets <- tibble(id = tidy_tweets$created_at, 
+                         title = tidy_tweets$text)
+
+
+
+#View(LTER_article_titles)
+ADC_tweets <- ADC_tweets %>% 
+  unnest_tokens(word, title) %>% 
+  anti_join(stop_words)
+
+ADC_tweets %>%
+  count(word, sort = TRUE)
+
+
+#We can use pairwise_count() from the widyr package to count how many times each pair of words occurs together in a title or description field.
+
+tweet_word_pairs <- ADC_tweets %>% 
+  pairwise_count(word, id, sort = TRUE, upper = FALSE)
+
+tweet_word_pairs
+
+
+
+```
+
+```{r}
+
+
+
+#fun graph showing connections between words
+
+set.seed(1234)
+tweet_word_pairs %>%
+  filter(n >= 12) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n, edge_width = n), edge_colour = "#156760") +
+  geom_node_point(size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE, 
+                 point.padding = unit(0.2, "lines")) +
+  theme_void() +
+  ggtitle("Word network - ADC Tweets")
+
+
+```
+
